@@ -214,7 +214,7 @@ body::after {
 .page { max-width: 100%; max-height: 100%; object-fit: contain; display: block; animation: pageIn .16s ease-out;
   box-shadow: 0 12px 50px rgba(0, 0, 0, .65); }
 @keyframes pageIn { from { opacity: .35; } to { opacity: 1; } }
-.reader[data-mode="spread"] .page { max-width: 50%; }
+.paged-wrap.two .page { max-width: 50%; }
 .vpage { width: 100%; }
 .vimg { display: block; width: 100%; height: auto; }
 
@@ -261,6 +261,8 @@ body::after {
 .seg svg { width: 19px; height: 19px; }
 .seg.on { background: linear-gradient(180deg, var(--accent-bright), var(--accent)); color: #fff; box-shadow: 0 4px 12px -4px var(--accent-deep), inset 0 1px 0 rgba(255,255,255,.25); }
 .seg:not(.on):active { background: rgba(255, 255, 255, .06); }
+.spread-only { display: none; }
+.reader[data-mode="spread"] .spread-only { display: block; }
 
 /* ---- series shelves (stacked-card hint behind the cover) ---- */
 .cover-wrap.is-series::before, .cover-wrap.is-series::after {
