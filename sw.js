@@ -1,12 +1,16 @@
 // App-shell cache so the reader launches offline. Comics themselves live in
 // IndexedDB (never touched here). Heavy libs (pdf.js, libarchive) are cached
 // lazily on first use via the runtime cache-first handler below.
-const CACHE = 'comic-reader-v3';
+const CACHE = 'comic-reader-v4';
 const CORE = [
   './', 'index.html', 'app.css', 'app.js',
   'lib/library.js', 'lib/archive.js', 'lib/thumb.js', 'lib/reader.js',
   'vendor/zipjs/zip.min.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png',
+  'vendor/fonts/fraunces-400.woff2', 'vendor/fonts/fraunces-400i.woff2',
+  'vendor/fonts/fraunces-600.woff2', 'vendor/fonts/fraunces-700.woff2',
+  'vendor/fonts/hanken-400.woff2', 'vendor/fonts/hanken-500.woff2',
+  'vendor/fonts/hanken-600.woff2', 'vendor/fonts/hanken-700.woff2',
 ];
 
 self.addEventListener('install', e => {
