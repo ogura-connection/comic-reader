@@ -27,7 +27,7 @@ and work offline. No server, no accounts, no ads.
 |--------|---------|-------|
 | **CBZ** (zip) | ✅ Best | Pages read on demand — fast, low memory, handles big files. |
 | **PDF** | ✅ Good | Rendered crisply (≈2400px). |
-| **CBR / CB7** (rar/7z) | ⚠️ Best-effort | Loaded whole into memory via a WASM extractor; some RARv5/solid archives may fail. **Converting CBR→CBZ (e.g. Calibre) is more reliable.** Mislabeled `.cbr` files that are really ZIPs are auto-detected and use the fast path. |
+| **CBR / CB7** (rar/7z) | ⚠️ Auto-converted on import | Extracted once when added and repackaged as **CBZ**, so every later read uses the fast/reliable zip path (libarchive never runs again). Some RARv5/solid archives may fail to extract — then it's kept as-is and Calibre conversion helps. Files over ~250MB are kept as-is to avoid a conversion memory spike. Mislabeled `.cbr` files that are really ZIPs skip straight to the fast path. |
 
 ## Honest limits
 - **Huge scans:** iPad Safari may subsample images larger than ~16MP on decode.

@@ -1,5 +1,5 @@
 import * as lib from './lib/library.js';
-import { openComic } from './lib/archive.js';
+import { openComic, archiveToCbz } from './lib/archive.js';
 import { makeThumb } from './lib/thumb.js';
 import { createReader } from './lib/reader.js';
 
@@ -131,14 +131,23 @@ fileInput.addEventListener('change', async () => {
       const backend = await openComic(f);
       let cover = null;
       try { cover = await makeThumb(await backend.getPageBlob(0)); } catch (_) {}
+      // Normalize flaky archive formats (CBR/CB7) to CBZ on import so every
+      // future read uses the fast, reliable zip path. Skip very large files
+      // to avoid the conversion memory spike.
+      let storeBlob = f, format = backend.format;
+      if (format === 'archive' && f.size < 250 * 1024 * 1024) {
+        t.textContent = `Converting ${i + 1} / ${files.length}: ${f.name} → CBZ…`;
+        try { storeBlob = await archiveToCbz(backend); format = 'zip'; }
+        catch (e) { console.warn('CBZ conversion failed; keeping original', e); }
+      }
       await lib.addComic({
         title: titleFromName(f.name),
-        format: backend.format,
+        format,
         pageCount: backend.pageCount,
         cover,
         direction: 'ltr',
         mode: 'paged',
-      }, f);
+      }, storeBlob);
       await backend.close();
       ok++;
     } catch (err) {
