@@ -1,4 +1,5 @@
 import * as lib from './lib/library.js';
+import * as backup from './lib/backup.js';
 import { openComic, archiveToCbz } from './lib/archive.js';
 import { makeThumb } from './lib/thumb.js';
 import { createReader } from './lib/reader.js';
@@ -23,6 +24,9 @@ const I = {
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg>',
   spark: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l1.7 5.8 5.8 1.7-5.8 1.7-1.7 5.8-1.7-5.8L4.5 10l5.8-1.7Z"/><circle cx="18.5" cy="18.5" r="1.7"/><circle cx="5" cy="17" r="1.2"/></svg>',
   info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a7.9 7.9 0 0 0 0-2l1.7-1.3-1.7-3-2 .8a7.7 7.7 0 0 0-1.8-1l-.3-2.2H9.7l-.3 2.2a7.7 7.7 0 0 0-1.8 1l-2-.8-1.7 3L5.6 11a7.9 7.9 0 0 0 0 2l-1.7 1.3 1.7 3 2-.8c.5.4 1.1.8 1.8 1l.3 2.2h3.5l.3-2.2c.7-.2 1.3-.6 1.8-1l2 .8 1.7-3Z"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>',
+  upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9M7 14l5-5 5 5M5 3h14"/></svg>',
 };
 const numOf = c => { const n = parseFloat(c.number); return isNaN(n) ? 0 : n; };
 const coverImg = cover => {
@@ -43,12 +47,63 @@ function toast(msg, ms = 2600) {
 }
 const setLoading = on => loadbar && loadbar.classList.toggle('on', on);
 
+// Safety net: never fail silently. Surface any uncaught error as a toast.
+window.addEventListener('error', e => { if (e.message) toast(`Something broke: ${e.message}`, 5000); });
+window.addEventListener('unhandledrejection', e => toast(`Something broke: ${e.reason?.message || e.reason}`, 5000));
+
 // ---------- routing ----------
 const showLibrary = () => renderLibrary();
 
+// ---------- library keyboard navigation ----------
+// Reader-first: arrows move the selection, Return opens, F2 renames, Delete
+// removes, Esc backs out of a series view. Dormant on touch (no keydown).
+let navTiles = [];
+let navSel = -1;
+let navBack = null;
+function setNav(tiles, back) {
+  navTiles = tiles;
+  navBack = back || null;
+  navSel = -1;
+  tiles.forEach((t, i) => { t.tabIndex = -1; t.addEventListener('pointerdown', () => { navSel = i; }); });
+}
+function gridCols() {
+  if (navTiles.length < 2) return 1;
+  const top0 = navTiles[0].offsetTop;
+  let c = 0;
+  for (const t of navTiles) { if (Math.abs(t.offsetTop - top0) < 4) c++; else break; }
+  return Math.max(1, c);
+}
+function selectNav(i) {
+  i = Math.max(0, Math.min(navTiles.length - 1, i));
+  navTiles.forEach(t => t.classList.remove('selected'));
+  navSel = i;
+  const t = navTiles[i];
+  if (t) { t.classList.add('selected'); t.scrollIntoView({ block: 'nearest' }); }
+}
+function onLibKey(e) {
+  if (reader || document.querySelector('.sheet-backdrop')) return; // reader / modal owns the keys
+  const tag = (document.activeElement && document.activeElement.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  const k = e.key, at = navSel < 0 ? 0 : navSel, fresh = navSel < 0;
+  if (!navTiles.length) { if (k === 'Escape' && navBack) { e.preventDefault(); navBack(); } return; }
+  if (k === 'ArrowRight') { e.preventDefault(); selectNav(fresh ? 0 : at + 1); }
+  else if (k === 'ArrowLeft') { e.preventDefault(); selectNav(fresh ? 0 : at - 1); }
+  else if (k === 'ArrowDown') { e.preventDefault(); selectNav(fresh ? 0 : at + gridCols()); }
+  else if (k === 'ArrowUp') { e.preventDefault(); selectNav(fresh ? 0 : at - gridCols()); }
+  else if (k === 'Home') { e.preventDefault(); selectNav(0); }
+  else if (k === 'End') { e.preventDefault(); selectNav(navTiles.length - 1); }
+  else if (k === 'Enter') { const n = navSel >= 0 && navTiles[navSel]._nav; if (n) { e.preventDefault(); n.open(); } }
+  else if (k === 'F2') { const n = navSel >= 0 && navTiles[navSel]._nav; if (n && n.comic) { e.preventDefault(); renameComic(n.comic, n.refresh); } }
+  else if (k === 'Delete' || k === 'Backspace') { const n = navSel >= 0 && navTiles[navSel]._nav; if (n && n.comic) { e.preventDefault(); deleteComic(n.comic, n.refresh); } }
+  else if (k === 'Escape' && navBack) { e.preventDefault(); navBack(); }
+}
+
 // ---------- library view (grouped into series shelves + standalones) ----------
 async function renderLibrary() {
-  coverUrls.forEach(URL.revokeObjectURL);
+  // Hold the old cover URLs until the new grid is mounted, then revoke. Revoking
+  // up-front would leave the still-visible old <img>s (e.g. the library sitting
+  // under the reader we just exited) pointing at dead blobs → broken-image "?".
+  const stale = coverUrls;
   coverUrls = [];
   const [comics, seriesList] = await Promise.all([lib.getAllComics(), lib.getAllSeries()]);
   const seriesMap = new Map(seriesList.map(s => [s.key, s]));
@@ -74,6 +129,7 @@ async function renderLibrary() {
   }).sort((a, b) => b.recent - a.recent);
 
   app.innerHTML = '';
+  stale.forEach(URL.revokeObjectURL); // old <img>s now detached — safe to revoke
   app.appendChild(headerEl(comics.length));
   if (!comics.length) { app.appendChild(emptyEl()); return; }
 
@@ -81,6 +137,7 @@ async function renderLibrary() {
   grid.className = 'grid';
   entries.forEach((e, i) => grid.appendChild(e.isSeries ? seriesTile(e, i) : comicTile(e.lead, i)));
   app.appendChild(grid);
+  setNav([...grid.querySelectorAll('.tile')], null);
 }
 
 function headerEl(total) {
@@ -90,9 +147,82 @@ function headerEl(total) {
     <div class="brand"><span class="kicker">Reader</span><h1>Comics<em>.</em></h1></div>
     <div class="spacer"></div>
     ${total ? `<span class="count">${total} ${total === 1 ? 'volume' : 'volumes'}</span>` : ''}
+    <button class="icon-btn lib-settings" aria-label="Library settings">${I.gear}</button>
     <button class="btn accent add-btn">${I.plus} Add</button>`;
   header.querySelector('.add-btn').addEventListener('click', () => fileInput.click());
+  header.querySelector('.lib-settings').addEventListener('click', libSettings);
   return header;
+}
+
+// ---------- library settings: export / import / storage ----------
+function fmtBytes(n) {
+  if (!n) return '0 MB';
+  const mb = n / (1024 * 1024);
+  return mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : Math.round(mb) + ' MB';
+}
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 8000);
+}
+function libSettings() {
+  const sheet = document.createElement('div');
+  sheet.className = 'sheet-backdrop';
+  sheet.innerHTML = `
+    <div class="sheet">
+      <div class="sheet-title">Library</div>
+      <div class="sheet-note storage-line">Calculating storage…</div>
+      <button data-act="export-lib">${I.download} Export library (.zip)</button>
+      <button data-act="export-prog">${I.upload} Export reading progress (.json)</button>
+      <button data-act="import">${I.download} Import library or progress…</button>
+      <button data-act="cancel" class="cancel">Cancel</button>
+    </div>`;
+  const close = () => sheet.remove();
+  sheet.addEventListener('click', e => { if (e.target === sheet) close(); });
+  lib.storageEstimate().then(est => {
+    const line = sheet.querySelector('.storage-line');
+    if (line) line.textContent = est ? `${fmtBytes(est.usage)} used of ${fmtBytes(est.quota)} available` : 'Stored on this device';
+  });
+  sheet.querySelectorAll('button').forEach(b => b.addEventListener('click', async () => {
+    const act = b.dataset.act;
+    if (act === 'cancel') return close();
+    if (act === 'import') { close(); fileInput.click(); return; }
+    close();
+    if (act === 'export-lib') {
+      setLoading(true);
+      toast('Packing library…', 0);
+      try {
+        const blob = await backup.exportLibrary((i, n, title) => toast(`Packing ${i} / ${n} · ${title}`, 0));
+        download(blob, 'Comics-Library.zip');
+        toast('Library exported. Save it to iCloud Drive / Files.', 4000);
+      } catch (e) { console.error(e); toast(`Export failed: ${e.message || e}`, 5000); }
+      finally { setLoading(false); }
+    } else if (act === 'export-prog') {
+      try { download(await backup.exportProgress(), 'Comics-Progress.json'); toast('Reading progress exported.'); }
+      catch (e) { console.error(e); toast('Export failed.', 4000); }
+    }
+  }));
+  document.body.appendChild(sheet);
+}
+
+async function importLibraryFile(f) {
+  setLoading(true);
+  toast('Importing library…', 0);
+  try {
+    const n = await backup.importLibrary(f, (i, tot, title) => toast(`Importing ${i} / ${tot} · ${title}`, 0));
+    toast(n ? `Imported ${n} comic${n > 1 ? 's' : ''}.` : 'Library already up to date.');
+  } catch (e) { console.error(e); toast(`Import failed: ${e.message || e}`, 5000); }
+  finally { setLoading(false); renderLibrary(); }
+}
+async function importProgressFile(f) {
+  toast('Syncing progress…', 0);
+  try {
+    const n = await backup.importProgress(f);
+    toast(n ? `Updated ${n} book${n > 1 ? 's' : ''}.` : 'No matching books to update.');
+  } catch (e) { console.error(e); toast('Progress import failed.', 4000); }
+  renderLibrary();
 }
 function emptyEl() {
   const empty = document.createElement('div');
@@ -127,6 +257,7 @@ function comicTile(c, i) {
     <div class="tile-sub ${started ? 'reading' : ''}">${started ? `Continue · ${c.lastPage + 1} / ${c.pageCount}` : `${c.pageCount} pages`}</div>`;
   tile.querySelector('.cover').addEventListener('click', e => { if (e.target.closest('.tile-menu')) return; openReader(c.id, showLibrary); });
   tile.querySelector('.tile-menu').addEventListener('click', e => { e.stopPropagation(); comicMenu(c, showLibrary); });
+  tile._nav = { comic: c, open: () => openReader(c.id, showLibrary), refresh: showLibrary };
   return tile;
 }
 
@@ -148,16 +279,17 @@ function seriesTile(e, i) {
     <div class="tile-title">${esc(e.name)}</div>
     <div class="tile-sub ${reading ? 'reading' : ''}">${reading ? 'Reading' : 'Series'} · ${count} ${unit}</div>`;
   tile.querySelector('.cover').addEventListener('click', () => showSeries(e.k));
+  tile._nav = { open: () => showSeries(e.k) };
   return tile;
 }
 
 // ---------- series detail view ----------
 async function showSeries(key) {
-  coverUrls.forEach(URL.revokeObjectURL);
+  const stale = coverUrls; // revoke only after the new view is built (see renderLibrary)
   coverUrls = [];
   const [allComics, sm] = await Promise.all([lib.getAllComics(), lib.getSeries(key)]);
   const list = allComics.filter(c => c.seriesKey === key).sort((a, b) => numOf(a) - numOf(b));
-  if (!list.length) return showLibrary();
+  if (!list.length) { stale.forEach(URL.revokeObjectURL); return showLibrary(); }
   const lead = list[0];
   const meta = sm || { key, name: lead.seriesName, cover: lead.cover, accent: lead.accent, genres: lead.genres, authors: lead.creators, year: lead.year, publisher: lead.publisher, summary: lead.summary };
   const authors = (meta.authors || []).map(a => a.name).filter((v, idx, arr) => v && arr.indexOf(v) === idx).slice(0, 4);
@@ -165,6 +297,7 @@ async function showSeries(key) {
   const unit = lead.kind === 'volume' ? 'volumes' : 'issues';
 
   app.innerHTML = '';
+  stale.forEach(URL.revokeObjectURL); // old <img>s detached — safe to revoke
   const view = document.createElement('div');
   view.className = 'series-view';
   view.innerHTML = `
@@ -190,6 +323,7 @@ async function showSeries(key) {
   list.forEach((c, i) => grid.appendChild(volTile(c, key, i)));
   view.querySelector('.series-back').addEventListener('click', showLibrary);
   view.querySelector('.match-btn').addEventListener('click', () => matchOnline(key, meta));
+  setNav([...grid.querySelectorAll('.tile')], showLibrary);
 }
 
 function volTile(c, key, i) {
@@ -211,7 +345,24 @@ function volTile(c, key, i) {
     <div class="tile-sub ${started ? 'reading' : ''}">${started ? `p.${c.lastPage + 1} / ${c.pageCount}` : `${c.pageCount} pages`}</div>`;
   tile.querySelector('.cover').addEventListener('click', e => { if (e.target.closest('.tile-menu')) return; openReader(c.id, () => showSeries(key)); });
   tile.querySelector('.tile-menu').addEventListener('click', e => { e.stopPropagation(); comicMenu(c, () => showSeries(key)); });
+  tile._nav = { comic: c, open: () => openReader(c.id, () => showSeries(key)), refresh: () => showSeries(key) };
   return tile;
+}
+
+// ---------- comic actions (shared by the context menu + keyboard) ----------
+async function renameComic(c, refresh) {
+  const name = prompt('Title', c.title);
+  if (name && name.trim()) { await lib.updateComic(c.id, { title: name.trim() }); refresh(); }
+}
+async function deleteComic(c, refresh) {
+  if (!confirm(`Delete "${c.title}"? This removes it from this device.`)) return;
+  const key = c.seriesKey;
+  await lib.deleteComic(c.id);
+  if (key) {
+    const rest = (await lib.getAllComics()).filter(x => x.seriesKey === key);
+    if (!rest.length) return showLibrary();
+  }
+  refresh();
 }
 
 // ---------- comic context menu ----------
@@ -233,21 +384,9 @@ function comicMenu(c, refresh) {
     const act = b.dataset.act;
     close();
     if (act === 'read') openReader(c.id, refresh);
-    else if (act === 'rename') {
-      const name = prompt('Title', c.title);
-      if (name && name.trim()) { await lib.updateComic(c.id, { title: name.trim() }); refresh(); }
-    } else if (act === 'unread') { await lib.updateComic(c.id, { lastPage: 0 }); refresh(); }
-    else if (act === 'delete') {
-      if (confirm(`Delete "${c.title}"? This removes it from this device.`)) {
-        const key = c.seriesKey;
-        await lib.deleteComic(c.id);
-        if (key) {
-          const rest = (await lib.getAllComics()).filter(x => x.seriesKey === key);
-          if (!rest.length) return showLibrary();
-        }
-        refresh();
-      }
-    }
+    else if (act === 'rename') renameComic(c, refresh);
+    else if (act === 'unread') { await lib.updateComic(c.id, { lastPage: 0 }); refresh(); }
+    else if (act === 'delete') deleteComic(c, refresh);
   }));
   document.body.appendChild(sheet);
 }
@@ -311,9 +450,19 @@ async function applyMatch(key, r) {
 
 // ---------- add flow ----------
 fileInput.addEventListener('change', async () => {
-  const files = [...fileInput.files];
+  const picked = [...fileInput.files];
   fileInput.value = '';
+  if (!picked.length) return;
+
+  // route library bundles / progress files away from the add-as-comic path
+  const files = [];
+  for (const f of picked) {
+    if (/\.json$/i.test(f.name)) { await importProgressFile(f); continue; }
+    if (await backup.isLibraryBundle(f)) { await importLibraryFile(f); continue; }
+    files.push(f);
+  }
   if (!files.length) return;
+
   setLoading(true);
   const t = toast('Adding…', 0);
   let ok = 0;
@@ -384,8 +533,22 @@ async function boot() {
   loadbar = document.createElement('div');
   loadbar.className = 'loadbar';
   document.body.appendChild(loadbar);
+  document.addEventListener('keydown', onLibKey);
   await lib.requestPersistence();
   await renderLibrary();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  // "Add comics" home-screen shortcut → open the picker (best-effort; needs a gesture)
+  if (new URLSearchParams(location.search).has('add')) setTimeout(() => fileInput.click(), 250);
+  if ('serviceWorker' in navigator) {
+    // When a freshly-deployed worker takes over, reload once so the page runs
+    // the new code instead of the stale cached shell. Guarded so a first-ever
+    // visit (no prior controller) doesn't reload, and so it only fires once.
+    if (navigator.serviceWorker.controller) {
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloaded) return; reloaded = true; location.reload();
+      });
+    }
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
 }
 boot();

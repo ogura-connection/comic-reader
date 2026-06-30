@@ -5,8 +5,13 @@
   "scope": ".",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#0b0b0c",
-  "theme_color": "#0b0b0c",
+  "background_color": "#0e0c0d",
+  "theme_color": "#0e0c0d",
+  "categories": ["books", "entertainment", "education"],
+  "description": "An install-free, offline comic reader (CBZ / PDF / CBR / CB7) for iPad.",
+  "shortcuts": [
+    { "name": "Add comics", "short_name": "Add", "url": "./?add=1", "description": "Pick comic files to add to your library" }
+  ],
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
